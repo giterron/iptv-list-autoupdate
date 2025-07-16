@@ -1,0 +1,349 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IPTV 直播列表</title>
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 
+                         Oxygen, Ubuntu, Cantarell, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #121212;
+            color: #e0e0e0;
+            line-height: 1.6;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: #1e1e1e;
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+        }
+        header {
+            background: linear-gradient(90deg, #0062cc, #9c27b0);
+            padding: 25px 30px;
+            text-align: center;
+            border-bottom: 1px solid #444;
+        }
+        h1 {
+            margin: 0;
+            font-size: 2.2rem;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+        }
+        .status-panel {
+            background: #2d2d30;
+            padding: 15px 20px;
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #444;
+        }
+        .status-item {
+            font-size: 0.95rem;
+            padding: 8px 0;
+        }
+        .last-update {
+            font-weight: bold;
+            color: #4caf50;
+        }
+        .list-actions {
+            margin-top: 15px;
+            display: flex;
+            gap: 10px;
+        }
+        button {
+            background: #0062cc;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            padding: 10px 15px;
+            cursor: pointer;
+            transition: all 0.3s;
+            font-weight: 600;
+        }
+        button:hover {
+            background: #0050a8;
+            transform: translateY(-2px);
+        }
+        button.refresh {
+            background: #9c27b0;
+        }
+        button.refresh:hover {
+            background: #7b1fa2;
+        }
+        button.download {
+            background: #388e3c;
+        }
+        button.download:hover {
+            background: #2e7d32;
+        }
+        pre {
+            background: #1e1e1e;
+            padding: 20px;
+            margin: 0;
+            overflow: auto;
+            font-size: 14px;
+            line-height: 1.4;
+            max-height: 70vh;
+            white-space: pre-wrap;
+            color: #d4d4d4;
+            font-family: 'Consolas', 'Monaco', monospace;
+            border-radius: 0 0 12px 12px;
+        }
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .status-up {
+            background: #4caf50;
+            box-shadow: 0 0 8px #4caf50;
+        }
+        .status-down {
+            background: #f44336;
+        }
+        .viewer-controls {
+            background: #252526;
+            padding: 10px 20px;
+            border-bottom: 1px solid #444;
+        }
+        .viewer-select {
+            background: #333;
+            color: #e0e0e0;
+            border: 1px solid #555;
+            border-radius: 4px;
+            padding: 8px;
+            font-size: 14px;
+        }
+        footer {
+            text-align: center;
+            padding: 20px;
+            color: #777;
+            font-size: 0.9rem;
+        }
+        a {
+            color: #64b5f6;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+        
+        @media (max-width: 768px) {
+            .status-panel {
+                flex-direction: column;
+                align-items: flex-start;
+            }
+            .list-actions {
+                width: 100%;
+                justify-content: center;
+                margin-top: 10px;
+            }
+            h1 {
+                font-size: 1.8rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>IPTV 直播频道列表</h1>
+        </header>
+        
+        <div class="status-panel">
+            <div class="status-item">
+                最后更新: <span id="last-update" class="last-update">正在获取...</span>
+            </div>
+            <div class="status-item">
+                状态: 
+                <span class="status-indicator status-down" id="status-indicator"></span>
+                <span id="status-text">连接中...</span>
+            </div>
+            <div class="status-item" id="content-stats">
+                内容: <span id="content-length">0</span> 行
+            </div>
+            
+            <div class="list-actions">
+                <button class="refresh" id="refresh-btn">🔄 刷新列表</button>
+                <button class="download" id="download-btn">📥 下载最新列表</button>
+            </div>
+        </div>
+        
+        <div class="viewer-controls">
+            <select class="viewer-select" id="viewer-mode">
+                <option value="raw">原始格式</option>
+                <option value="grouped">分组查看</option>
+            </select>
+        </div>
+        
+        <pre id="iptv-list">正在加载直播列表...</pre>
+        
+        <footer>
+            GitHub自动更新服务 | 最后同步: <span id="last-sync">--</span>
+        </footer>
+    </div>
+    
+    <script>
+        // 全局变量
+        let listData = null;
+        const listUrl = 'list.nzk';
+        const metaUrl = 'update-meta.json';
+        
+        // DOM元素
+        const lastUpdateEl = document.getElementById('last-update');
+        const statusEl = document.getElementById('status-text');
+        const statusIndicator = document.getElementById('status-indicator');
+        const contentStats = document.getElementById('content-length');
+        const iptvListEl = document.getElementById('iptv-list');
+        const refreshBtn = document.getElementById('refresh-btn');
+        const downloadBtn = document.getElementById('download-btn');
+        const viewerModeEl = document.getElementById('viewer-mode');
+        const lastSyncEl = document.getElementById('last-sync');
+        
+        // 刷新列表
+        async function refreshList(manual = false) {
+            if (manual) {
+                refreshBtn.disabled = true;
+                refreshBtn.textContent = '刷新中...';
+                statusEl.textContent = '手动请求更新...';
+                statusIndicator.className = 'status-indicator';
+            }
+            
+            try {
+                // 更新状态
+                statusEl.textContent = '获取最新数据...';
+                statusIndicator.className = 'status-indicator';
+                
+                // 获取元数据
+                const metaResponse = await fetch(metaUrl + '?t=' + Date.now());
+                if (!metaResponse.ok) throw new Error('元数据获取失败');
+                
+                const meta = await metaResponse.json();
+                
+                // 更新最后同步时间
+                const syncTime = new Date().toLocaleString();
+                lastSyncEl.textContent = syncTime;
+                
+                // 处理更新状态
+                if (meta.status === 'success') {
+                    statusIndicator.className = 'status-indicator status-up';
+                    statusEl.textContent = '数据已更新';
+                    
+                    // 更新最后更新时间
+                    const updateDate = new Date(meta.timestamp);
+                    lastUpdateEl.textContent = updateDate.toLocaleString();
+                    
+                    // 获取列表数据
+                    const response = await fetch(listUrl + '?t=' + Date.now());
+                    if (!response.ok) throw new Error('列表内容获取失败');
+                    
+                    listData = await response.text();
+                    
+                    // 更新内容统计
+                    const lines = listData.split('\n').length;
+                    contentStats.textContent = lines;
+                    
+                    // 渲染列表
+                    renderList(viewerModeEl.value);
+                } else {
+                    throw new Error(meta.error || '未知错误');
+                }
+            } catch (error) {
+                console.error(error);
+                statusIndicator.className = 'status-indicator status-down';
+                statusEl.textContent = `错误: ${error.message}`;
+                
+                if (listData) {
+                    iptvListEl.textContent = listData + 
+                        `\n\n----- 警告: 最新更新失败 -----\n${error.message}`;
+                }
+            } finally {
+                if (manual) {
+                    refreshBtn.disabled = false;
+                    refreshBtn.textContent = '🔄 刷新列表';
+                }
+            }
+        }
+        
+        // 渲染列表内容
+        function renderList(mode) {
+            if (!listData) return;
+            
+            if (mode === 'raw') {
+                iptvListEl.textContent = listData;
+            } else if (mode === 'grouped') {
+                // 基础分组逻辑
+                const groups = {};
+                let currentGroup = '未分组';
+                
+                listData.split('\n').forEach(line => {
+                    if (line.startsWith('#EXTINF')) {
+                        const groupMatch = line.match(/group-title="([^"]+)"/);
+                        if (groupMatch && groupMatch[1]) {
+                            currentGroup = groupMatch[1];
+                        }
+                    } else if (line.startsWith('http')) {
+                        if (!groups[currentGroup]) groups[currentGroup] = [];
+                        groups[currentGroup].push(line);
+                    }
+                });
+                
+                // 生成分组视图
+                let groupedView = '';
+                for (const [group, links] of Object.entries(groups)) {
+                    groupedView += `\n\n===== [ ${group} ] =====\n`;
+                    links.forEach(link => groupedView += link + '\n');
+                }
+                
+                iptvListEl.textContent = groupedView;
+            }
+        }
+        
+        // 手动刷新
+        async function triggerManualUpdate() {
+            // 在现实项目中这里可以调用GitHub API触发workflow_dispatch
+            alert('已触发手动更新，请等待几分钟后刷新页面');
+        }
+        
+        // 下载列表
+        function downloadList() {
+            if (!listData) {
+                alert('没有数据可下载');
+                return;
+            }
+            
+            const blob = new Blob([listData], {type: 'text/plain'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `iptv-list_${new Date().toISOString().split('T')[0]}.nzk`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+        
+        // 初始化页面
+        document.addEventListener('DOMContentLoaded', () => {
+            // 设置最后同步时间
+            lastSyncEl.textContent = new Date().toLocaleString();
+            
+            // 绑定事件
+            refreshBtn.addEventListener('click', () => refreshList(true));
+            downloadBtn.addEventListener('click', downloadList);
+            viewerModeEl.addEventListener('change', () => renderList(viewerModeEl.value));
+            
+            // 首次加载
+            refreshList();
+        });
+    </script>
+</body>
+</html>

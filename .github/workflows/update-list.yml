@@ -1,0 +1,42 @@
+name: Update IPTV List
+
+on:
+  schedule:
+    - cron: '0 */4 * * *'  # 每4小时更新一次
+  workflow_dispatch:       # 允许手动触发
+  push:
+    branches: [main]
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.11'
+        
+    - name: Install dependencies
+      run: pip install requests pycryptodome
+        
+    - name: Fetch IPTV list
+      id: fetch
+      run: python update.py
+      
+    - name: Commit and push changes
+      if: steps.fetch.outcome == 'success'
+      run: |
+        git config user.name "GitHub Actions"
+        git config user.email "actions@users.noreply.github.com"
+        git add list.nzk
+        git commit -m "Update IPTV list at $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+        git push origin HEAD:gh-pages
+        
+    - name: Verify URL
+      if: steps.fetch.outcome == 'success'
+      run: |
+        echo "Final URL: ${{ steps.fetch.outputs.final_url }}"
+        curl -I "${{ steps.fetch.outputs.final_url }}"
